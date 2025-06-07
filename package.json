@@ -1,0 +1,111 @@
+{
+  "name": "technical-debt-detective",
+  "displayName": "Technical Debt Detective",
+  "description": "AI-powered code analysis",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript",
+    "onLanguage:typescript"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "technicalDebtDetective.analyzeFile",
+        "title": "Analyze Current File",
+        "category": "Technical Debt Detective"
+      },
+      {
+        "command": "technicalDebtDetective.showDetails",
+        "title": "Show Analysis Details",
+        "category": "Technical Debt Detective"
+      },
+      {
+        "command": "technicalDebtDetective.explainIssue",
+        "title": "Explain Issue",
+        "category": "Technical Debt Detective"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "technicalDebtDetective.chatView",
+          "name": "AI Detective Chat",
+          "icon": "$(comment-discussion)",
+          "contextualTitle": "Technical Debt Detective"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Technical Debt Detective",
+      "properties": {
+        "technicalDebtDetective.enableAutoAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic analysis on file open/save"
+        },
+        "techDebtDetective.geminiApiKey": {
+          "type": "string",
+          "default": "AIzaSyAQ11QV-uBX17eDDnKVaubgbteBQLg0VTU",
+          "description": "Google Gemini API key"
+        },
+        "techDebtDetective.geminiModel": {
+          "type": "string",
+          "enum": [
+            "gemini-pro",
+            "gemini-pro-vision",
+            "gemini-2.0-flash"
+          ],
+          "default": "gemini-2.0-flash",
+          "description": "Gemini model to use"
+        },
+        "technicalDebtDetective.complexityThreshold": {
+          "type": "number",
+          "default": 10,
+          "description": "Cyclomatic complexity threshold"
+        },
+        "technicalDebtDetective.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API Key for AI analysis"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@langchain/community": "^0.3.45",
+    "@types/lodash": "^4.17.17",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.100.0",
+    "@typescript-eslint/eslint-plugin": "^8.33.0",
+    "@typescript-eslint/parser": "^8.33.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.28.0",
+    "langchain": "^0.3.27",
+    "sonar-scanner": "^3.1.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "@langchain/google-genai": "^0.2.10",
+    "@types/babel__traverse": "^7.20.7",
+    "dotenv": "^16.5.0"
+  }
+}
