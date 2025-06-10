@@ -20,17 +20,20 @@
       {
         "command": "technicalDebtDetective.analyzeFile",
         "title": "Analyze Current File",
-        "category": "Technical Debt Detective"
+        "category": "Technical Debt Detective",
+        "icon": "$(search)"
       },
       {
-        "command": "technicalDebtDetective.showDetails",
-        "title": "Show Analysis Details",
-        "category": "Technical Debt Detective"
+        "command": "technicalDebtDetective.showDashboard",
+        "title": "Show Dashboard",
+        "category": "Technical Debt Detective",
+        "icon": "$(graph)"
       },
       {
         "command": "technicalDebtDetective.explainIssue",
         "title": "Explain Issue",
-        "category": "Technical Debt Detective"
+        "category": "Technical Debt Detective",
+        "icon": "$(lightbulb)"
       }
     ],
     "views": {
@@ -41,6 +44,26 @@
           "name": "AI Detective Chat",
           "icon": "$(comment-discussion)",
           "contextualTitle": "Technical Debt Detective"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "technicalDebtDetective.analyzeFile"
+        },
+        {
+          "command": "technicalDebtDetective.showDashboard"
+        },
+        {
+          "command": "technicalDebtDetective.explainIssue"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "technicalDebtDetective.analyzeFile",
+          "when": "resourceLangId == javascript || resourceLangId == typescript || resourceLangId == javascriptreact || resourceLangId == typescriptreact",
+          "group": "navigation"
         }
       ]
     },

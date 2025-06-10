@@ -40,6 +40,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const codeActionProvider = new CodeActionProvider(codeAnalyzer);
   const hoverProvider = new HoverProvider(codeAnalyzer, diagnosticManager);
+  chatProvider = new ChatViewProvider(context.extensionUri, codeAnalyzer);
 
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider(
@@ -55,38 +56,55 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  chatProvider = new ChatViewProvider(context.extensionUri, codeAnalyzer);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      "techDebtDetective.chatView",
+      "technicalDebtDetective.chatView",
       chatProvider
     )
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "techDebtDetective.analyzeFile",
+      "technicalDebtDetective.analyzeFile",
       analyzeCurrentFile
     )
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("techDebtDetective.showDashboard", () => {
+    vscode.commands.registerCommand("technicalDebtDetective.showDashboard", () => {
       DashboardProvider.createOrShow(context.extensionUri, diagnosticManager);
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "techDebtDetective.explainIssue",
+      "technicalDebtDetective.explainIssue",
       explainSelectedIssue
     )
   );
+
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    100
+  );
+  statusBarItem.text = "$(graph) Tech Debt";
+  statusBarItem.command = "technicalDebtDetective.showDashboard";
+  statusBarItem.tooltip = "Open Technical Debt Dashboard";
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
   const debouncedAnalysis = debounce(performAnalysis, 1000);
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((document) => {
+      if (isSupported(document)) {
+        debouncedAnalysis(document);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((document) => {
       if (isSupported(document)) {
         debouncedAnalysis(document);
       }
@@ -105,7 +123,7 @@ export async function activate(context: vscode.ExtensionContext) {
 function isSupported(document: vscode.TextDocument): boolean {
   return [
     "javascript",
-    "typescript",
+    "typescript", 
     "javascriptreact",
     "typescriptreact",
   ].includes(document.languageId);
@@ -117,38 +135,64 @@ async function performAnalysis(document: vscode.TextDocument) {
     const code = document.getText();
     const filePath = document.fileName;
 
-    const result = await codeAnalyzer.analyzeCode(code, filePath);
+    if (!code.trim()) {
+      return;
+    }
 
-    // Convert to diagnostics
-    const diagnostics: vscode.Diagnostic[] = result.issues.map((issue) => {
-      const line = Math.max(0, issue.line - 1);
-      const range = new vscode.Range(line, 0, line, Number.MAX_SAFE_INTEGER);
+    vscode.window.withProgress({
+      location: vscode.ProgressLocation.Window,
+      title: "Analyzing code...",
+      cancellable: false
+    }, async () => {
+      const result = await codeAnalyzer.analyzeCode(code, filePath);
 
-      const diagnostic = new vscode.Diagnostic(
-        range,
-        `${issue.description} (Est. ${issue.fixTime} min to fix)`,
-        issue.severity === "high"
-          ? vscode.DiagnosticSeverity.Error
-          : issue.severity === "medium"
-          ? vscode.DiagnosticSeverity.Warning
-          : vscode.DiagnosticSeverity.Information
+
+      const diagnostics: vscode.Diagnostic[] = result.issues.map((issue) => {
+        const line = Math.max(0, (issue.line || 1) - 1);
+        const maxLine = document.lineCount - 1;
+        const safeLine = Math.min(line, maxLine);
+        
+        const lineText = document.lineAt(safeLine).text;
+        const range = new vscode.Range(
+          safeLine,
+          0,
+          safeLine,
+          lineText.length || Number.MAX_SAFE_INTEGER
+        );
+
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `${issue.description} (Est. ${issue.fixTime} min to fix)`,
+          issue.severity === "high"
+            ? vscode.DiagnosticSeverity.Error
+            : issue.severity === "medium"
+            ? vscode.DiagnosticSeverity.Warning
+            : vscode.DiagnosticSeverity.Information
+        );
+
+        diagnostic.source = "Technical Debt Detective";
+        diagnostic.code = issue.type;
+
+        (diagnostic as any).issueData = issue;
+
+        return diagnostic;
+      });
+
+      diagnosticManager.updateDiagnostics(document.uri, diagnostics, result);
+
+      const elapsed = Date.now() - startTime;
+      Logger.info(`Analysis completed in ${elapsed}ms for ${filePath}`);
+
+      DashboardProvider.updateData(result, document.fileName);
+      
+      const issueCount = result.issues.length;
+      const healthEmoji = result.healthScore >= 8 ? "✅" : result.healthScore >= 6 ? "⚠️" : "🚨";
+      vscode.window.setStatusBarMessage(
+        `${healthEmoji} Health: ${result.healthScore}/10, Issues: ${issueCount}`,
+        5000
       );
-
-      diagnostic.source = "Technical Debt Detective";
-      diagnostic.code = issue.type;
-
-      // Store issue data for hover and code actions
-      (diagnostic as any).issueData = issue;
-
-      return diagnostic;
     });
 
-    diagnosticManager.updateDiagnostics(document.uri, diagnostics, result);
-
-    const elapsed = Date.now() - startTime;
-    Logger.info(`Analysis completed in ${elapsed}ms`);
-
-    DashboardProvider.updateData(result, document.fileName);
   } catch (error) {
     Logger.error("Analysis failed:", error as Error);
     vscode.window.showErrorMessage(
@@ -161,6 +205,11 @@ async function analyzeCurrentFile() {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     vscode.window.showInformationMessage("No active editor");
+    return;
+  }
+
+  if (!isSupported(editor.document)) {
+    vscode.window.showInformationMessage("File type not supported for analysis");
     return;
   }
 
@@ -184,15 +233,22 @@ async function explainSelectedIssue() {
   }
 
   const issue = (diagnostic as any).issueData;
-  const explanation = await codeAnalyzer.explainIssue(
-    editor.document.getText(),
-    issue
-  );
+  
+  vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: "Explaining issue...",
+    cancellable: false
+  }, async () => {
+    const explanation = await codeAnalyzer.explainIssue(
+      editor.document.getText(),
+      issue
+    );
 
-  chatProvider.postMessage({
-    type: "explanation",
-    content: explanation,
-    issue: issue,
+    chatProvider.postMessage({
+      type: "explanation",
+      content: explanation,
+      issue: issue,
+    });
   });
 }
 
