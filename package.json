@@ -83,7 +83,7 @@
         },
         "techDebtDetective.geminiApiKey": {
           "type": "string",
-          "default": "AIzaSyAQ11QV-uBX17eDDnKVaubgbteBQLg0VTU",
+          "default": "",
           "description": "Google Gemini API key"
         },
         "techDebtDetective.geminiModel": {
