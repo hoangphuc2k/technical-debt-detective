@@ -34,6 +34,12 @@
         "title": "Explain Issue",
         "category": "Technical Debt Detective",
         "icon": "$(lightbulb)"
+      },
+      {
+        "command": "techDebtDetective.applyFix",
+        "title": "Apply Fix",
+        "category": "Technical Debt Detective",
+        "icon": "$(tools)"
       }
     ],
     "views": {

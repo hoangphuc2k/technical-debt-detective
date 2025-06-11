@@ -17,6 +17,7 @@ export interface CodeIssue {
   description: string;
   fixTime: number;
   suggestion?: string;
+  codeSnippet?: string; // Add this to help with line detection
 }
 
 export interface AnalysisResult {
@@ -71,18 +72,21 @@ MANDATORY ANALYSIS STEPS:
 IMPORTANT RULES:
 - You MUST call all 4 tools before responding
 - Combine all tool results into your analysis
+- For line numbers, use the exact line numbers from the tool results
+- Include a small code snippet (3-5 words) from the problematic line to help with detection
 - Always provide the response in this EXACT JSON format (no markdown, no extra text):
 
 {{
   "healthScore": <number 1-10>,
   "issues": [
     {{
-      "type": "<issue type>",
+      "type": "<issue type from tools like no-var, no-console, eqeqeq, etc>",
       "severity": "<high|medium|low>",
-      "line": <line number>,
+      "line": <exact line number from tool results>,
       "description": "<clear description>",
       "fixTime": <estimated minutes>,
-      "suggestion": "<how to fix>"
+      "suggestion": "<how to fix>",
+      "codeSnippet": "<3-5 words from the problematic line>"
     }}
   ],
   "suggestions": ["<actionable suggestion 1>", "<suggestion 2>"],
@@ -107,23 +111,28 @@ IMPORTANT RULES:
       agent,
       tools,
       verbose: true,
-      maxIterations: 10, // Increased to ensure all tools are called
+      maxIterations: 10,
     });
   }
 
   async analyzeCode(code: string, filePath: string): Promise<AnalysisResult> {
     await this.initialized;
 
+    // Add line numbers to help AI understand line positions
+    const numberedCode = code.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n');
+
     const input = `Please analyze this code from ${filePath}. 
 
 You MUST use ALL 4 tools (eslint_analyzer, complexity_analyzer, duplicate_detector, sonarqube_analyzer) before providing your response.
 
+IMPORTANT: The code below has line numbers. Use these exact line numbers when reporting issues.
+
 Code to analyze:
 \`\`\`
-${code}
+${numberedCode}
 \`\`\`
 
-Remember: Call ALL tools first, then provide the JSON response.`;
+Remember: Call ALL tools first, then provide the JSON response with exact line numbers from the tools.`;
 
     try {
       const result = await this.executor.invoke({ input });
@@ -137,17 +146,22 @@ Remember: Call ALL tools first, then provide the JSON response.`;
   async generateFix(code: string, issue: CodeIssue): Promise<string> {
     await this.initialized;
 
+    const lines = code.split('\n');
+    const contextStart = Math.max(0, issue.line - 3);
+    const contextEnd = Math.min(lines.length, issue.line + 2);
+    const context = lines.slice(contextStart, contextEnd).join('\n');
+
     const input = `Generate a code fix for this issue:
     
     Issue: ${issue.description} at line ${issue.line}
     Type: ${issue.type}
     
-    Original code:
+    Context around line ${issue.line}:
     \`\`\`javascript
-    ${code}
+    ${context}
     \`\`\`
     
-    Provide ONLY the fixed code snippet for the problematic section.`;
+    Provide ONLY the fixed version of line ${issue.line}. Do not include line numbers or extra explanation.`;
 
     try {
       const result = await this.executor.invoke({ input });
@@ -220,6 +234,7 @@ Remember: Call ALL tools first, then provide the JSON response.`;
               description: issue.description ?? "No description",
               fixTime: parseInt(issue.fixTime) || 15,
               suggestion: issue.suggestion,
+              codeSnippet: issue.codeSnippet,
             }))
           : [],
         suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
@@ -248,16 +263,34 @@ Remember: Call ALL tools first, then provide the JSON response.`;
   private createFallbackResult(output: string): AnalysisResult {
     const issues: CodeIssue[] = [];
     
-    if (output.includes("console.log")) {
-      issues.push({
-        type: "console-usage",
-        severity: "medium",
-        line: 1,
-        description: "Console.log statement found",
-        fixTime: 2,
-        suggestion: "Remove console.log statements"
-      });
-    }
+    // Try to extract issues from the output text
+    const lines = output.split('\n');
+    lines.forEach(line => {
+      if (line.includes("line") && line.includes(":")) {
+        const lineMatch = line.match(/line\s*(\d+)/i);
+        const lineNum = lineMatch ? parseInt(lineMatch[1]) : 1;
+        
+        if (line.toLowerCase().includes("console.log")) {
+          issues.push({
+            type: "no-console",
+            severity: "medium",
+            line: lineNum,
+            description: "Console.log statement found",
+            fixTime: 2,
+            suggestion: "Remove console.log statements from production code"
+          });
+        } else if (line.toLowerCase().includes("var")) {
+          issues.push({
+            type: "no-var",
+            severity: "high",
+            line: lineNum,
+            description: "Use of 'var' keyword",
+            fixTime: 2,
+            suggestion: "Replace 'var' with 'let' or 'const'"
+          });
+        }
+      }
+    });
 
     return {
       healthScore: 6,

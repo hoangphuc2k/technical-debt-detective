@@ -246,16 +246,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     background-color: var(--vscode-editor-background);
                     margin: 0;
                     font-size: 13px;
+                    overflow: hidden;
                 }
                 .chat-container {
                     display: flex;
                     flex-direction: column;
-                    height: 100vh;
+                    height: calc(100vh - 20px);
+                    max-height: 100%;
                 }
                 .header {
                     padding: 10px 0;
                     border-bottom: 1px solid var(--vscode-panel-border);
                     margin-bottom: 10px;
+                    flex-shrink: 0;
                 }
                 .header h3 {
                     margin: 0;
@@ -267,6 +270,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     overflow-y: auto;
                     margin-bottom: 10px;
                     padding: 5px;
+                    min-height: 0;
                 }
                 .message {
                     margin: 10px 0;
@@ -312,6 +316,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     padding: 10px;
                     background: var(--vscode-editor-background);
                     border-top: 1px solid var(--vscode-panel-border);
+                    flex-shrink: 0;
                 }
                 input {
                     flex: 1;
@@ -406,142 +411,147 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             </div>
             
             <script nonce="${nonce}">
-                (function() {
-                    const vscode = acquireVsCodeApi();
-                    const messagesEl = document.getElementById('messages');
-                    const inputEl = document.getElementById('userInput');
-                    const sendBtn = document.getElementById('sendBtn');
-                    const analyzeBtn = document.getElementById('analyzeBtn');
-                    const findIssuesBtn = document.getElementById('findIssuesBtn');
-                    const improveBtn = document.getElementById('improveBtn');
-                    
-                    // Debug log
-                    console.log('Chat view script loaded');
-                    
-                    // Send ready message
+                const vscode = acquireVsCodeApi();
+                const messagesEl = document.getElementById('messages');
+                const inputEl = document.getElementById('userInput');
+                const sendBtn = document.getElementById('sendBtn');
+                const analyzeBtn = document.getElementById('analyzeBtn');
+                const findIssuesBtn = document.getElementById('findIssuesBtn');
+                const improveBtn = document.getElementById('improveBtn');
+                
+                // Debug log
+                console.log('Chat view script loaded');
+                
+                // Send ready message when DOM is fully loaded
+                window.addEventListener('DOMContentLoaded', () => {
+                    console.log('DOM loaded, sending ready message');
                     vscode.postMessage({ type: 'ready' });
+                });
+                
+                function sendMessage() {
+                    const question = inputEl.value.trim();
+                    if (!question) return;
                     
-                    function sendMessage() {
-                        const question = inputEl.value.trim();
-                        if (!question) return;
-                        
-                        console.log('Sending message:', question);
-                        
-                        addMessage(question, 'user');
-                        sendBtn.disabled = true;
-                        
-                        vscode.postMessage({
-                            type: 'askQuestion',
-                            question: question
-                        });
-                        
-                        inputEl.value = '';
-                    }
+                    console.log('Sending message:', question);
                     
-                    function askSuggestion(question) {
-                        inputEl.value = question;
-                        sendMessage();
-                    }
+                    addMessage(question, 'user');
+                    sendBtn.disabled = true;
                     
-                    function addMessage(text, sender, isThinking = false, isError = false, id = null) {
-                        const messageEl = document.createElement('div');
-                        let className = 'message ' + (sender === 'user' ? 'user-message' : 'ai-message');
-                        if (isThinking) className += ' thinking';
-                        if (isError) className += ' error';
-                        messageEl.className = className;
-                        
-                        if (id) {
-                            messageEl.setAttribute('data-message-id', id);
-                        }
-                        
-                        // Handle markdown-like formatting
-                        const formatted = text
-                            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                            .replace(/\n/g, '<br>');
-                            
-                        messageEl.innerHTML = formatted;
-                        messagesEl.appendChild(messageEl);
-                        messagesEl.scrollTop = messagesEl.scrollHeight;
-                        
-                        return messageEl;
-                    }
-                    
-                    function removeMessage(id) {
-                        const element = document.querySelector('[data-message-id="' + id + '"]');
-                        if (element) {
-                            element.remove();
-                        }
-                    }
-                    
-                    // Event listeners with proper binding
-                    sendBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        sendMessage();
+                    vscode.postMessage({
+                        type: 'askQuestion',
+                        question: question
                     });
                     
-                    analyzeBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        askSuggestion('Analyze my current file');
-                    });
-                    
-                    findIssuesBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        askSuggestion('What issues does my code have?');
-                    });
-                    
-                    improveBtn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        askSuggestion('How can I improve code quality?');
-                    });
-                    
-                    inputEl.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter' && !sendBtn.disabled) {
-                            e.preventDefault();
-                            sendMessage();
-                        }
-                    });
-                    
-                    window.addEventListener('message', function(event) {
-                        const message = event.data;
-                        console.log('Received message:', message);
-                        sendBtn.disabled = false;
-                        
-                        switch (message.type) {
-                            case 'thinking':
-                                addMessage(message.content, 'ai', true, false, message.id);
-                                break;
-                            case 'removeThinking':
-                                removeMessage(message.id);
-                                break;
-                            case 'response':
-                            case 'explanation':
-                                addMessage(message.content, 'ai');
-                                break;
-                            case 'analysis':
-                                const result = message.content;
-                                const text = '**Health Score:** ' + result.healthScore + '/10\n' +
-                                    '**Issues Found:** ' + result.issues.length + '\n\n' +
-                                    '**Top Suggestions:**\n' +
-                                    result.suggestions.slice(0, 3).map(s => '• ' + s).join('\n');
-                                addMessage(text, 'ai');
-                                break;
-                            case 'error':
-                                addMessage('❌ ' + message.content, 'ai', false, true);
-                                break;
-                            case 'welcome':
-                                addMessage(message.content, 'ai', false, false, null);
-                                break;
-                        }
-                    });
-                    
-                    // Auto-focus input
+                    inputEl.value = '';
                     inputEl.focus();
+                }
+                
+                function addMessage(text, sender, isThinking = false, isError = false, id = null) {
+                    const messageEl = document.createElement('div');
+                    let className = 'message ' + (sender === 'user' ? 'user-message' : 'ai-message');
+                    if (isThinking) className += ' thinking';
+                    if (isError) className += ' error';
+                    messageEl.className = className;
                     
-                    // Debug: Test if clicks work
-                    document.body.addEventListener('click', function(e) {
-                        console.log('Click detected on:', e.target);
+                    if (id) {
+                        messageEl.setAttribute('data-message-id', id);
+                    }
+                    
+                    // Handle markdown-like formatting
+                    const formatted = text
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>');
+                        
+                    messageEl.innerHTML = formatted;
+                    messagesEl.appendChild(messageEl);
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                    
+                    return messageEl;
+                }
+                
+                function removeMessage(id) {
+                    const element = document.querySelector('[data-message-id="' + id + '"]');
+                    if (element) {
+                        element.remove();
+                    }
+                }
+                
+                // Event listeners
+                sendBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    sendMessage();
+                });
+                
+                analyzeBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Analyze button clicked');
+                    vscode.postMessage({
+                        type: 'analyzeCurrentFile'
                     });
-                })();
+                });
+                
+                findIssuesBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Find issues button clicked');
+                    vscode.postMessage({
+                        type: 'findIssues'
+                    });
+                });
+                
+                improveBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Improve button clicked');
+                    vscode.postMessage({
+                        type: 'improveQuality'
+                    });
+                });
+                
+                inputEl.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && !sendBtn.disabled) {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                });
+                
+                window.addEventListener('message', (event) => {
+                    const message = event.data;
+                    console.log('Received message:', message);
+                    sendBtn.disabled = false;
+                    
+                    switch (message.type) {
+                        case 'thinking':
+                            addMessage(message.content, 'ai', true, false, message.id);
+                            break;
+                        case 'removeThinking':
+                            removeMessage(message.id);
+                            break;
+                        case 'response':
+                        case 'explanation':
+                            addMessage(message.content, 'ai');
+                            break;
+                        case 'analysis':
+                            const result = message.content;
+                            const text = '**Health Score:** ' + result.healthScore + '/10\\n' +
+                                '**Issues Found:** ' + result.issues.length + '\\n\\n' +
+                                '**Top Suggestions:**\\n' +
+                                result.suggestions.slice(0, 3).map(s => '• ' + s).join('\\n');
+                            addMessage(text, 'ai');
+                            break;
+                        case 'error':
+                            addMessage('❌ ' + message.content, 'ai', false, true);
+                            break;
+                        case 'welcome':
+                            console.log('Welcome message received');
+                            break;
+                    }
+                });
+                
+                // Auto-focus input
+                inputEl.focus();
             </script>
         </body>
         </html>`;

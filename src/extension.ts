@@ -3,7 +3,7 @@ import { CodeAnalyzerAgent } from "./agents/codeAnalyzerAgent.js";
 import { DashboardProvider } from "./dashboard/dashboardProvider.js";
 import { DiagnosticManager } from "./diagnostics/diagnosticManager.js";
 import { ChatViewProvider } from "./providers/chatViewProvider.js";
-import { CodeActionProvider } from "./providers/codeActionProvider.js";
+import { CodeActionProvider, registerApplyFixCommand } from "./providers/codeActionProvider.js";
 import { HoverProvider } from "./providers/hoverProvider.js";
 import { Logger } from "./utils/logger.js";
 import { debounce } from "./utils/debounce.js";
@@ -42,6 +42,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const hoverProvider = new HoverProvider(codeAnalyzer, diagnosticManager);
   chatProvider = new ChatViewProvider(context.extensionUri, codeAnalyzer);
 
+  // Register code action provider
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider(
       ["javascript", "typescript", "javascriptreact", "typescriptreact"],
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Register hover provider
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       ["javascript", "typescript", "javascriptreact", "typescriptreact"],
@@ -56,6 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Register webview provider
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       "technicalDebtDetective.chatView",
@@ -63,6 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Register commands
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "technicalDebtDetective.analyzeFile",
@@ -83,6 +87,54 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  // Register the apply fix command
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'techDebtDetective.applyFix',
+      async (document: vscode.TextDocument, diagnostic: vscode.Diagnostic, issueData: any) => {
+        try {
+          const fix = await codeAnalyzer.generateFix(document.getText(), issueData);
+          
+          // Apply the fix
+          const edit = new vscode.WorkspaceEdit();
+          
+          // Get the line to replace
+          const line = diagnostic.range.start.line;
+          const lineText = document.lineAt(line).text;
+          const fullRange = new vscode.Range(line, 0, line, lineText.length);
+          
+          // Apply specific fixes based on issue type
+          if (issueData.type === 'no-var') {
+            const newLineText = lineText.replace(/\bvar\b/, 'let');
+            edit.replace(document.uri, fullRange, newLineText);
+          } else if (issueData.type === 'no-console') {
+            const newLineText = '// ' + lineText.trim();
+            edit.replace(document.uri, fullRange, newLineText);
+          } else if (issueData.type === 'eqeqeq') {
+            let newLineText = lineText;
+            if (lineText.includes('!=') && !lineText.includes('!==')) {
+              newLineText = lineText.replace(/!=/g, '!==');
+            } else if (lineText.includes('==') && !lineText.includes('===')) {
+              newLineText = lineText.replace(/==/g, '===');
+            }
+            edit.replace(document.uri, fullRange, newLineText);
+          } else if (issueData.type === 'semi') {
+            const newLineText = lineText.trimRight() + ';';
+            edit.replace(document.uri, fullRange, newLineText);
+          } else if (fix && fix.trim() !== '') {
+            edit.replace(document.uri, fullRange, fix.trim());
+          }
+          
+          await vscode.workspace.applyEdit(edit);
+          vscode.window.showInformationMessage('Fix applied successfully!');
+        } catch (error) {
+          vscode.window.showErrorMessage(`Failed to apply fix: ${error}`);
+        }
+      }
+    )
+  );
+
+  // Status bar item
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     100
@@ -139,44 +191,22 @@ async function performAnalysis(document: vscode.TextDocument) {
       return;
     }
 
-    vscode.window.withProgress({
+    await vscode.window.withProgress({
       location: vscode.ProgressLocation.Window,
       title: "Analyzing code...",
       cancellable: false
     }, async () => {
       const result = await codeAnalyzer.analyzeCode(code, filePath);
 
-
-      const diagnostics: vscode.Diagnostic[] = result.issues.map((issue) => {
-        const line = Math.max(0, (issue.line || 1) - 1);
-        const maxLine = document.lineCount - 1;
-        const safeLine = Math.min(line, maxLine);
-        
-        const lineText = document.lineAt(safeLine).text;
-        const range = new vscode.Range(
-          safeLine,
-          0,
-          safeLine,
-          lineText.length || Number.MAX_SAFE_INTEGER
-        );
-
-        const diagnostic = new vscode.Diagnostic(
-          range,
-          `${issue.description} (Est. ${issue.fixTime} min to fix)`,
-          issue.severity === "high"
-            ? vscode.DiagnosticSeverity.Error
-            : issue.severity === "medium"
-            ? vscode.DiagnosticSeverity.Warning
-            : vscode.DiagnosticSeverity.Information
-        );
-
-        diagnostic.source = "Technical Debt Detective";
-        diagnostic.code = issue.type;
-
-        (diagnostic as any).issueData = issue;
-
-        return diagnostic;
-      });
+      const diagnostics: vscode.Diagnostic[] = [];
+      
+      // Process each issue and find its actual location in the code
+      for (const issue of result.issues) {
+        const diagnostic = await createDiagnosticForIssue(document, issue, code);
+        if (diagnostic) {
+          diagnostics.push(diagnostic);
+        }
+      }
 
       diagnosticManager.updateDiagnostics(document.uri, diagnostics, result);
 
@@ -199,6 +229,121 @@ async function performAnalysis(document: vscode.TextDocument) {
       `Analysis failed: ${(error as Error).message}`
     );
   }
+}
+
+async function createDiagnosticForIssue(
+  document: vscode.TextDocument,
+  issue: any,
+  code: string
+): Promise<vscode.Diagnostic | null> {
+  try {
+    let range: vscode.Range;
+    
+    // Try to find the exact location based on issue type and description
+    if (issue.type === 'no-var' || issue.type === 'no-console' || issue.type === 'eqeqeq') {
+      // Search for the pattern in the code
+      const searchPattern = getSearchPatternForIssue(issue);
+      const lineIndex = findLineWithPattern(document, searchPattern, issue.line);
+      
+      if (lineIndex >= 0) {
+        const line = document.lineAt(lineIndex);
+        const matchIndex = line.text.indexOf(searchPattern);
+        
+        if (matchIndex >= 0) {
+          // Create a range that highlights just the problematic part
+          range = new vscode.Range(
+            lineIndex,
+            matchIndex,
+            lineIndex,
+            matchIndex + searchPattern.length
+          );
+        } else {
+          // Fallback to full line
+          range = line.range;
+        }
+      } else {
+        // Use the line number from AI if we can't find the pattern
+        const line = Math.max(0, (issue.line || 1) - 1);
+        const maxLine = document.lineCount - 1;
+        const safeLine = Math.min(line, maxLine);
+        range = document.lineAt(safeLine).range;
+      }
+    } else {
+      // For other issue types, use the line number provided
+      const line = Math.max(0, (issue.line || 1) - 1);
+      const maxLine = document.lineCount - 1;
+      const safeLine = Math.min(line, maxLine);
+      range = document.lineAt(safeLine).range;
+    }
+
+    const diagnostic = new vscode.Diagnostic(
+      range,
+      `${issue.description} (Est. ${issue.fixTime} min to fix)`,
+      issue.severity === "high"
+        ? vscode.DiagnosticSeverity.Error
+        : issue.severity === "medium"
+        ? vscode.DiagnosticSeverity.Warning
+        : vscode.DiagnosticSeverity.Information
+    );
+
+    diagnostic.source = "Technical Debt Detective";
+    diagnostic.code = issue.type;
+    (diagnostic as any).issueData = issue;
+
+    return diagnostic;
+  } catch (error) {
+    console.error("Error creating diagnostic:", error);
+    return null;
+  }
+}
+
+function getSearchPatternForIssue(issue: any): string {
+  switch (issue.type) {
+    case 'no-var':
+      return 'var ';
+    case 'no-console':
+      return 'console.log';
+    case 'eqeqeq':
+      if (issue.description.includes('!==')) {
+        return '!=';
+      }
+      return '==';
+    case 'semi':
+      return ';'; // This is tricky, might need different approach
+    default:
+      return '';
+  }
+}
+
+function findLineWithPattern(
+  document: vscode.TextDocument,
+  pattern: string,
+  suggestedLine?: number
+): number {
+  if (!pattern) {
+    return suggestedLine ? suggestedLine - 1 : -1;
+  }
+
+  // First, try around the suggested line
+  if (suggestedLine) {
+    const searchStart = Math.max(0, suggestedLine - 3);
+    const searchEnd = Math.min(document.lineCount, suggestedLine + 2);
+    
+    for (let i = searchStart; i < searchEnd; i++) {
+      if (document.lineAt(i).text.includes(pattern)) {
+        return i;
+      }
+    }
+  }
+
+  // If not found around suggested line, search entire document
+  for (let i = 0; i < document.lineCount; i++) {
+    if (document.lineAt(i).text.includes(pattern)) {
+      return i;
+    }
+  }
+
+  return -1;
 }
 
 async function analyzeCurrentFile() {
@@ -234,7 +379,7 @@ async function explainSelectedIssue() {
 
   const issue = (diagnostic as any).issueData;
   
-  vscode.window.withProgress({
+  await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     title: "Explaining issue...",
     cancellable: false

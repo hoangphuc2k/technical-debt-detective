@@ -33,46 +33,4 @@ export class SonarQubeTool extends Tool {
       );
     });
   }
-
-  private async performLocalAnalysis(code: string): Promise<any> {
-    const issues: Array<{
-      type: string;
-      rule: string;
-      line: number;
-      message: string;
-    }> = [];
-
-    const lines = code.split("\n");
-
-    lines.forEach((line, index) => {
-      if (line.length > 120) {
-        issues.push({
-          type: "code_smell",
-          rule: "line_too_long",
-          line: index + 1,
-          message: "Line exceeds 120 characters",
-        });
-      }
-
-      if (line.includes("TODO") || line.includes("FIXME")) {
-        issues.push({
-          type: "code_smell",
-          rule: "todo_comment",
-          line: index + 1,
-          message: "TODO/FIXME comment found",
-        });
-      }
-
-      if (line.includes("console.log")) {
-        issues.push({
-          type: "code_smell",
-          rule: "console_log",
-          line: index + 1,
-          message: "Console.log statement should be removed",
-        });
-      }
-    });
-
-    return { issues };
-  }
 }
