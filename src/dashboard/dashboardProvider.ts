@@ -66,15 +66,32 @@ export class DashboardProvider {
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
         
         this._panel.webview.onDidReceiveMessage(
-            message => {
+            async message => {
                 switch (message.command) {
                     case 'refresh':
                         this.update(diagnosticManager);
                         return;
                     case 'openFile':
-                        vscode.workspace.openTextDocument(message.file).then(doc => {
-                            vscode.window.showTextDocument(doc);
-                        });
+                        try {
+                            let filePath = message.file;
+                            
+                            // Check if it's already a URI string
+                            if (filePath.startsWith('file:///')) {
+                                // Parse the URI and get the file system path
+                                const uri = vscode.Uri.parse(filePath);
+                                const doc = await vscode.workspace.openTextDocument(uri);
+                                await vscode.window.showTextDocument(doc);
+                            } else {
+                                // It's a regular file path
+                                const uri = vscode.Uri.file(filePath);
+                                const doc = await vscode.workspace.openTextDocument(uri);
+                                await vscode.window.showTextDocument(doc);
+                            }
+                        } catch (error) {
+                            console.error('Error opening file:', error);
+                            console.error('File path was:', message.file);
+                            vscode.window.showErrorMessage(`Unable to open file: ${message.file}`);
+                        }
                         return;
                 }
             },
@@ -181,6 +198,7 @@ export class DashboardProvider {
                 }
                 
                 function openFile(file) {
+                    // Send the raw file path to the extension
                     vscode.postMessage({ 
                         command: 'openFile',
                         file: file
@@ -206,22 +224,38 @@ export class DashboardProvider {
     private generateFileRows(analyses: Map<string, AnalysisResult>): string {
         let rows = '';
         
-        analyses.forEach((analysis, file) => {
-            const fileName = file.split('/').pop() || file;
+        analyses.forEach((analysis, filePath) => {
+            const fileName = filePath.split(/[/\\]/).pop() || filePath;
             const debt = analysis.issues.reduce((sum, issue) => sum + issue.fixTime, 0);
+            // Escape the file path for HTML attributes and JavaScript
+            const escapedFile = filePath
+                .replace(/\\/g, '\\\\')  // Escape backslashes
+                .replace(/'/g, "\\'")    // Escape single quotes
+                .replace(/"/g, '\\"');   // Escape double quotes
             
             rows += `
                 <tr>
-                    <td><a href="#" onclick="openFile('${file}')">${fileName}</a></td>
+                    <td><a href="#" onclick="openFile('${escapedFile}'); return false;">${this.escapeHtml(fileName)}</a></td>
                     <td class="${this.getHealthClass(analysis.healthScore)}">${analysis.healthScore}/10</td>
                     <td>${analysis.issues.length}</td>
                     <td>${debt} min</td>
-                    <td><button onclick="openFile('${file}')">View</button></td>
+                    <td><button onclick="openFile('${escapedFile}'); return false;">View</button></td>
                 </tr>
             `;
         });
         
         return rows || '<tr><td colspan="5">No files analyzed yet</td></tr>';
+    }
+    
+    private escapeHtml(text: string): string {
+        const map: { [key: string]: string } = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
     }
     
     private getHealthClass(score: number): string {

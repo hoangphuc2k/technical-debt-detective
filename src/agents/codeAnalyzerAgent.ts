@@ -147,28 +147,86 @@ Remember: Call ALL tools first, then provide the JSON response with exact line n
     await this.initialized;
 
     const lines = code.split('\n');
-    const contextStart = Math.max(0, issue.line - 3);
-    const contextEnd = Math.min(lines.length, issue.line + 2);
-    const context = lines.slice(contextStart, contextEnd).join('\n');
+    const lineIndex = Math.max(0, issue.line - 1);
+    const problemLine = lines[lineIndex] || '';
+    
+    // Get context around the problematic line
+    const contextStart = Math.max(0, issue.line - 5);
+    const contextEnd = Math.min(lines.length, issue.line + 5);
+    const contextLines = lines.slice(contextStart, contextEnd);
+    const markedContext = contextLines.map((line, i) => {
+      const lineNum = contextStart + i + 1;
+      return lineNum === issue.line ? `>>> ${lineNum}: ${line}` : `${lineNum}: ${line}`;
+    }).join('\n');
 
-    const input = `Generate a code fix for this issue:
-    
-    Issue: ${issue.description} at line ${issue.line}
-    Type: ${issue.type}
-    
-    Context around line ${issue.line}:
-    \`\`\`javascript
-    ${context}
-    \`\`\`
-    
-    Provide ONLY the fixed version of line ${issue.line}. Do not include line numbers or extra explanation.`;
+    const input = `You are a code fixer. Fix this specific issue and return ONLY the corrected code.
+
+Issue Type: ${issue.type}
+Issue Description: ${issue.description}
+Suggestion: ${issue.suggestion || 'Fix the issue'}
+
+Code context (line ${issue.line} marked with >>>):
+${markedContext}
+
+IMPORTANT INSTRUCTIONS:
+1. Fix the issue on line ${issue.line} based on the issue description
+2. Return ONLY the fixed code - could be a single line or multiple lines if needed
+3. Do NOT include line numbers, explanations, JSON, or markdown
+4. Just return the actual fixed code that should replace the problematic code
+
+For example:
+- If it's a console.log issue, comment it out or remove it
+- If it's a var issue, replace with let or const
+- If it's a complexity issue, refactor the function
+- If it's a code smell, apply the suggested fix`;
 
     try {
       const result = await this.executor.invoke({ input });
-      return result.output || "Unable to generate fix";
+      let fixedCode = result.output || "";
+      
+      // Clean up the response
+      fixedCode = fixedCode
+        .replace(/^```[a-z]*\n?/, '') // Remove opening code block
+        .replace(/\n?```$/, '') // Remove closing code block
+        .replace(/^["']|["']$/g, '') // Remove quotes
+        .trim();
+      
+      // Validate the response
+      if (fixedCode.includes('"healthScore"') || fixedCode.includes('{') && fixedCode.includes('}') && fixedCode.includes('"issues"')) {
+        console.error('AI returned JSON instead of fixed code, trying again with simpler prompt');
+        
+        // Try a simpler approach
+        const simpleInput = `Fix this code issue:
+${problemLine}
+
+Issue: ${issue.description}
+How to fix: ${issue.suggestion}
+
+Return ONLY the fixed line of code, nothing else.`;
+        
+        const simpleResult = await this.executor.invoke({ input: simpleInput });
+        fixedCode = simpleResult.output || problemLine;
+        fixedCode = fixedCode.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
+      }
+      
+      // If still getting JSON or empty response, apply a simple fix based on type
+      if (!fixedCode || fixedCode.includes('"healthScore"')) {
+        console.warn('Failed to get proper fix from AI, applying fallback');
+        if (issue.type === 'no-console') {
+          return '    // ' + problemLine.trim(); // Preserve some indentation
+        } else if (issue.type === 'no-var') {
+          return problemLine.replace(/\bvar\b/, 'let');
+        } else if (issue.type === 'eqeqeq') {
+          return problemLine.replace(/!=/g, '!==').replace(/==/g, '===');
+        } else {
+          return problemLine; // Return original if we can't fix
+        }
+      }
+      
+      return fixedCode;
     } catch (error) {
       console.error("Fix generation error:", error);
-      return "Unable to generate fix";
+      return problemLine; // Return original line on error
     }
   }
 

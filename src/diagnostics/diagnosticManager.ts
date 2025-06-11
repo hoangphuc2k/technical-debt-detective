@@ -17,16 +17,17 @@ export class DiagnosticManager {
         analysis: AnalysisResult
     ) {
         this.diagnosticCollection.set(uri, diagnostics);
-        this.analysisCache.set(uri.toString(), analysis);
+        // Store using the file system path, not the URI string
+        this.analysisCache.set(uri.fsPath, analysis);
     }
     
     getAnalysis(uri: vscode.Uri): AnalysisResult | undefined {
-        return this.analysisCache.get(uri.toString());
+        return this.analysisCache.get(uri.fsPath);
     }
     
     clearDiagnostics(uri: vscode.Uri) {
         this.diagnosticCollection.delete(uri);
-        this.analysisCache.delete(uri.toString());
+        this.analysisCache.delete(uri.fsPath);
     }
     
     getAllAnalyses(): Map<string, AnalysisResult> {

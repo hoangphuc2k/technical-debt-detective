@@ -93,41 +93,88 @@ export async function activate(context: vscode.ExtensionContext) {
       'techDebtDetective.applyFix',
       async (document: vscode.TextDocument, diagnostic: vscode.Diagnostic, issueData: any) => {
         try {
-          const fix = await codeAnalyzer.generateFix(document.getText(), issueData);
-          
-          // Apply the fix
-          const edit = new vscode.WorkspaceEdit();
-          
-          // Get the line to replace
-          const line = diagnostic.range.start.line;
-          const lineText = document.lineAt(line).text;
-          const fullRange = new vscode.Range(line, 0, line, lineText.length);
-          
-          // Apply specific fixes based on issue type
-          if (issueData.type === 'no-var') {
-            const newLineText = lineText.replace(/\bvar\b/, 'let');
-            edit.replace(document.uri, fullRange, newLineText);
-          } else if (issueData.type === 'no-console') {
-            const newLineText = '// ' + lineText.trim();
-            edit.replace(document.uri, fullRange, newLineText);
-          } else if (issueData.type === 'eqeqeq') {
-            let newLineText = lineText;
-            if (lineText.includes('!=') && !lineText.includes('!==')) {
-              newLineText = lineText.replace(/!=/g, '!==');
-            } else if (lineText.includes('==') && !lineText.includes('===')) {
-              newLineText = lineText.replace(/==/g, '===');
+          // Show progress while generating fix
+          await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating fix...",
+            cancellable: false
+          }, async () => {
+            // Get AI-generated fix
+            const fix = await codeAnalyzer.generateFix(document.getText(), issueData);
+            
+            if (!fix || fix.trim() === '') {
+              vscode.window.showErrorMessage('Unable to generate fix');
+              return;
             }
-            edit.replace(document.uri, fullRange, newLineText);
-          } else if (issueData.type === 'semi') {
-            const newLineText = lineText.trimRight() + ';';
-            edit.replace(document.uri, fullRange, newLineText);
-          } else if (fix && fix.trim() !== '') {
-            edit.replace(document.uri, fullRange, fix.trim());
-          }
-          
-          await vscode.workspace.applyEdit(edit);
-          vscode.window.showInformationMessage('Fix applied successfully!');
+
+            // Check if the fix looks like JSON (shouldn't happen now, but just in case)
+            if (fix.includes('"healthScore"') || (fix.includes('{') && fix.includes('"issues"'))) {
+              vscode.window.showErrorMessage('AI returned analysis instead of fix. Please try again.');
+              return;
+            }
+
+            const edit = new vscode.WorkspaceEdit();
+            
+            // Determine the range to replace based on the fix
+            const fixLines = fix.split('\n');
+            const startLine = diagnostic.range.start.line;
+            
+            if (fixLines.length === 1) {
+              // Single line fix - replace just that line
+              const lineText = document.lineAt(startLine).text;
+              const fullRange = new vscode.Range(startLine, 0, startLine, lineText.length);
+              edit.replace(document.uri, fullRange, fix);
+            } else {
+              // Multi-line fix (for complex refactoring)
+              // Try to detect if it's a function that needs to be replaced
+              const endLine = Math.min(startLine + fixLines.length - 1, document.lineCount - 1);
+              
+              // Look for function boundaries if it's a complexity issue
+              if (issueData.type === 'complexity' || issueData.description.includes('function')) {
+                // Find the end of the function
+                let functionEndLine = startLine;
+                let braceCount = 0;
+                let inFunction = false;
+                
+                for (let i = startLine; i < document.lineCount; i++) {
+                  const line = document.lineAt(i).text;
+                  for (const char of line) {
+                    if (char === '{') {
+                      braceCount++;
+                      inFunction = true;
+                    } else if (char === '}') {
+                      braceCount--;
+                      if (inFunction && braceCount === 0) {
+                        functionEndLine = i;
+                        break;
+                      }
+                    }
+                  }
+                  if (functionEndLine !== startLine) break;
+                }
+                
+                const fullRange = new vscode.Range(
+                  startLine, 
+                  0, 
+                  functionEndLine, 
+                  document.lineAt(functionEndLine).text.length
+                );
+                edit.replace(document.uri, fullRange, fix);
+              } else {
+                // For other multi-line fixes, replace the same number of lines
+                const fullRange = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
+                edit.replace(document.uri, fullRange, fix);
+              }
+            }
+
+            await vscode.workspace.applyEdit(edit);
+            vscode.window.showInformationMessage('Fix applied successfully!');
+            
+            // Re-analyze the file after applying fix
+            setTimeout(() => performAnalysis(document), 1000);
+          });
         } catch (error) {
+          console.error('Error applying fix:', error);
           vscode.window.showErrorMessage(`Failed to apply fix: ${error}`);
         }
       }
@@ -213,7 +260,7 @@ async function performAnalysis(document: vscode.TextDocument) {
       const elapsed = Date.now() - startTime;
       Logger.info(`Analysis completed in ${elapsed}ms for ${filePath}`);
 
-      DashboardProvider.updateData(result, document.fileName);
+      DashboardProvider.updateData(result, document.uri.fsPath);
       
       const issueCount = result.issues.length;
       const healthEmoji = result.healthScore >= 8 ? "✅" : result.healthScore >= 6 ? "⚠️" : "🚨";
