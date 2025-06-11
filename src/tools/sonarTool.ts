@@ -6,7 +6,7 @@ export class SonarQubeTool extends Tool {
   description = "Performs comprehensive code analysis using SonarQube";
 
   async _call(input: string): Promise<string> {
-    const analysis = await this.performLocalAnalysis(input);
+    const analysis = await this.performSonarScan(input);
     return JSON.stringify(analysis);
   }
 
