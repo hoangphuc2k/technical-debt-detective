@@ -75,6 +75,17 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "technicalDebtDetective.analyzeSpecificFile",
+      async (document: vscode.TextDocument) => {
+        if (document && isSupported(document)) {
+          await performAnalysis(document);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("technicalDebtDetective.showDashboard", () => {
       DashboardProvider.createOrShow(context.extensionUri, diagnosticManager);
     })
@@ -393,20 +404,39 @@ function findLineWithPattern(
   return -1;
 }
 
-async function analyzeCurrentFile() {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showInformationMessage("No active editor");
-    return;
+async function analyzeCurrentFile(filePath?: string) {
+  let document: vscode.TextDocument;
+  
+  if (filePath) {
+    // If a file path is provided, open that document
+    try {
+      const uri = vscode.Uri.file(filePath);
+      document = await vscode.workspace.openTextDocument(uri);
+    } catch (error) {
+      vscode.window.showErrorMessage(`Unable to open file: ${filePath}`);
+      return;
+    }
+  } else {
+    // Otherwise, use the active editor
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showInformationMessage("No active editor");
+      return;
+    }
+    document = editor.document;
   }
 
-  if (!isSupported(editor.document)) {
+  if (!isSupported(document)) {
     vscode.window.showInformationMessage("File type not supported for analysis");
     return;
   }
 
-  await performAnalysis(editor.document);
-  vscode.window.showInformationMessage("Analysis complete!");
+  await performAnalysis(document);
+  
+  if (!filePath) {
+    // Only show this message when manually triggered
+    vscode.window.showInformationMessage("Analysis complete!");
+  }
 }
 
 async function explainSelectedIssue() {

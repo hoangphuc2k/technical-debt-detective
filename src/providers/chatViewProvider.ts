@@ -241,24 +241,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             <style>
                 body {
                     font-family: var(--vscode-font-family);
-                    padding: 10px;
+                    padding: 0;
+                    margin: 0;
                     color: var(--vscode-foreground);
                     background-color: var(--vscode-editor-background);
-                    margin: 0;
                     font-size: 13px;
+                    height: 100vh;
                     overflow: hidden;
                 }
                 .chat-container {
                     display: flex;
                     flex-direction: column;
-                    height: calc(100vh - 20px);
-                    max-height: 100%;
+                    height: 100vh;
+                    max-height: 100vh;
                 }
                 .header {
-                    padding: 10px 0;
+                    padding: 10px 15px;
                     border-bottom: 1px solid var(--vscode-panel-border);
-                    margin-bottom: 10px;
                     flex-shrink: 0;
+                    background: var(--vscode-editor-background);
                 }
                 .header h3 {
                     margin: 0;
@@ -268,15 +269,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 .messages {
                     flex: 1;
                     overflow-y: auto;
-                    margin-bottom: 10px;
-                    padding: 5px;
+                    padding: 10px;
                     min-height: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
                 }
                 .message {
-                    margin: 10px 0;
-                    padding: 10px;
+                    padding: 10px 12px;
                     border-radius: 6px;
-                    max-width: 100%;
+                    max-width: 85%;
                     word-wrap: break-word;
                     line-height: 1.4;
                     animation: fadeIn 0.3s ease-in;
@@ -288,11 +290,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 .user-message {
                     background-color: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
-                    margin-left: 10px;
+                    align-self: flex-end;
+                    margin-left: auto;
                 }
                 .ai-message {
                     background-color: var(--vscode-editor-selectionBackground);
-                    margin-right: 10px;
+                    align-self: flex-start;
                 }
                 .thinking {
                     font-style: italic;
@@ -318,7 +321,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     border-top: 1px solid var(--vscode-panel-border);
                     flex-shrink: 0;
                 }
-                input {
+                #userInput {
                     flex: 1;
                     padding: 8px 12px;
                     background-color: var(--vscode-input-background);
@@ -326,12 +329,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     border: 1px solid var(--vscode-input-border);
                     border-radius: 4px;
                     font-size: 13px;
+                    font-family: var(--vscode-font-family);
                     outline: none;
                 }
-                input:focus {
+                #userInput:focus {
                     border-color: var(--vscode-focusBorder);
                 }
-                button {
+                #sendBtn {
                     padding: 8px 16px;
                     background-color: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
@@ -339,29 +343,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     border-radius: 4px;
                     cursor: pointer;
                     font-size: 13px;
-                    white-space: nowrap;
+                    font-weight: 500;
                     transition: background-color 0.2s;
+                    min-width: 60px;
                 }
-                button:hover {
+                #sendBtn:hover:not(:disabled) {
                     background-color: var(--vscode-button-hoverBackground);
                 }
-                button:disabled {
+                #sendBtn:disabled {
                     opacity: 0.5;
                     cursor: not-allowed;
                 }
-                button:active:not(:disabled) {
+                #sendBtn:active:not(:disabled) {
                     transform: scale(0.98);
                 }
                 .suggestions {
-                    margin: 10px 0;
-                    padding: 0;
+                    padding: 0 10px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 5px;
                 }
                 .suggestion-btn {
                     display: block;
                     width: 100%;
                     text-align: left;
-                    margin: 5px 0;
-                    padding: 8px;
+                    padding: 8px 12px;
                     background: var(--vscode-editor-inactiveSelectionBackground);
                     border: 1px solid var(--vscode-panel-border);
                     border-radius: 4px;
@@ -369,6 +375,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     cursor: pointer;
                     font-size: 12px;
                     transition: all 0.2s;
+                    font-family: var(--vscode-font-family);
                 }
                 .suggestion-btn:hover {
                     background: var(--vscode-list-hoverBackground);
@@ -378,9 +385,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     color: var(--vscode-editor-foreground);
                     font-weight: 600;
                 }
-                .welcome-message {
-                    opacity: 0.8;
-                    font-style: italic;
+                .welcome-section {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
                 }
             </style>
         </head>
@@ -390,18 +398,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     <h3>🤖 AI Code Assistant</h3>
                 </div>
                 <div class="messages" id="messages">
-                    <div class="message ai-message">
-                        Hi! I'm your AI assistant. I can help you with:
-                        <br><br>
-                        <strong>• Code quality analysis</strong>
-                        <br><strong>• Best practices and suggestions</strong>  
-                        <br><strong>• Issue explanations and fixes</strong>
-                        <br><strong>• General coding questions</strong>
-                    </div>
-                    <div class="suggestions">
-                        <button class="suggestion-btn" id="analyzeBtn">📊 Analyze current file</button>
-                        <button class="suggestion-btn" id="findIssuesBtn">🔍 Find issues in my code</button>
-                        <button class="suggestion-btn" id="improveBtn">💡 How to improve quality?</button>
+                    <div class="welcome-section">
+                        <div class="message ai-message">
+                            Hi! I'm your AI assistant. I can help you with:
+                            <br><br>
+                            <strong>• Code quality analysis</strong>
+                            <br><strong>• Best practices and suggestions</strong>  
+                            <br><strong>• Issue explanations and fixes</strong>
+                            <br><strong>• General coding questions</strong>
+                        </div>
+                        <div class="suggestions">
+                            <button class="suggestion-btn" data-action="analyze">📊 Analyze current file</button>
+                            <button class="suggestion-btn" data-action="issues">🔍 Find issues in my code</button>
+                            <button class="suggestion-btn" data-action="improve">💡 How to improve quality?</button>
+                        </div>
                     </div>
                 </div>
                 <div class="input-container">
@@ -411,116 +421,104 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             </div>
             
             <script nonce="${nonce}">
+                // Initialize vscode API
                 const vscode = acquireVsCodeApi();
+                
+                // Get DOM elements
                 const messagesEl = document.getElementById('messages');
                 const inputEl = document.getElementById('userInput');
                 const sendBtn = document.getElementById('sendBtn');
-                const analyzeBtn = document.getElementById('analyzeBtn');
-                const findIssuesBtn = document.getElementById('findIssuesBtn');
-                const improveBtn = document.getElementById('improveBtn');
                 
-                // Debug log
-                console.log('Chat view script loaded');
+                // Track state
+                let isWaiting = false;
                 
-                // Send ready message when DOM is fully loaded
-                window.addEventListener('DOMContentLoaded', () => {
-                    console.log('DOM loaded, sending ready message');
+                // Initialize when DOM is ready
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log('Chat view initialized');
+                    
+                    // Set up event listeners
+                    setupEventListeners();
+                    
+                    // Send ready message
                     vscode.postMessage({ type: 'ready' });
-                });
-                
-                function sendMessage() {
-                    const question = inputEl.value.trim();
-                    if (!question) return;
                     
-                    console.log('Sending message:', question);
-                    
-                    addMessage(question, 'user');
-                    sendBtn.disabled = true;
-                    
-                    vscode.postMessage({
-                        type: 'askQuestion',
-                        question: question
-                    });
-                    
-                    inputEl.value = '';
+                    // Focus input
                     inputEl.focus();
-                }
-                
-                function addMessage(text, sender, isThinking = false, isError = false, id = null) {
-                    const messageEl = document.createElement('div');
-                    let className = 'message ' + (sender === 'user' ? 'user-message' : 'ai-message');
-                    if (isThinking) className += ' thinking';
-                    if (isError) className += ' error';
-                    messageEl.className = className;
-                    
-                    if (id) {
-                        messageEl.setAttribute('data-message-id', id);
-                    }
-                    
-                    // Handle markdown-like formatting
-                    const formatted = text
-                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/\n/g, '<br>');
-                        
-                    messageEl.innerHTML = formatted;
-                    messagesEl.appendChild(messageEl);
-                    messagesEl.scrollTop = messagesEl.scrollHeight;
-                    
-                    return messageEl;
-                }
-                
-                function removeMessage(id) {
-                    const element = document.querySelector('[data-message-id="' + id + '"]');
-                    if (element) {
-                        element.remove();
-                    }
-                }
-                
-                // Event listeners
-                sendBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    sendMessage();
                 });
                 
-                analyzeBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('Analyze button clicked');
-                    vscode.postMessage({
-                        type: 'analyzeCurrentFile'
-                    });
-                });
-                
-                findIssuesBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('Find issues button clicked');
-                    vscode.postMessage({
-                        type: 'findIssues'
-                    });
-                });
-                
-                improveBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('Improve button clicked');
-                    vscode.postMessage({
-                        type: 'improveQuality'
-                    });
-                });
-                
-                inputEl.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter' && !sendBtn.disabled) {
+                function setupEventListeners() {
+                    // Send button click
+                    sendBtn.addEventListener('click', function(e) {
                         e.preventDefault();
                         sendMessage();
-                    }
-                });
+                    });
+                    
+                    // Enter key in input
+                    inputEl.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter' && !isWaiting) {
+                            e.preventDefault();
+                            sendMessage();
+                        }
+                    });
+                    
+                    // Suggestion buttons
+                    document.addEventListener('click', function(e) {
+                        if (e.target.classList.contains('suggestion-btn')) {
+                            e.preventDefault();
+                            const action = e.target.getAttribute('data-action');
+                            handleSuggestion(action);
+                        }
+                    });
+                    
+                    // Message from extension
+                    window.addEventListener('message', handleExtensionMessage);
+                }
                 
-                window.addEventListener('message', (event) => {
+                function sendMessage() {
+                    const text = inputEl.value.trim();
+                    if (!text || isWaiting) return;
+                    
+                    // Add user message to chat
+                    addMessage(text, 'user');
+                    
+                    // Clear input
+                    inputEl.value = '';
+                    
+                    // Disable input while waiting
+                    setWaiting(true);
+                    
+                    // Send to extension
+                    vscode.postMessage({
+                        type: 'askQuestion',
+                        question: text
+                    });
+                }
+                
+                function handleSuggestion(action) {
+                    if (isWaiting) return;
+                    
+                    switch(action) {
+                        case 'analyze':
+                            addMessage('Analyze current file', 'user');
+                            setWaiting(true);
+                            vscode.postMessage({ type: 'analyzeCurrentFile' });
+                            break;
+                        case 'issues':
+                            addMessage('What issues does my code have?', 'user');
+                            setWaiting(true);
+                            vscode.postMessage({ type: 'findIssues' });
+                            break;
+                        case 'improve':
+                            addMessage('How can I improve code quality?', 'user');
+                            setWaiting(true);
+                            vscode.postMessage({ type: 'improveQuality' });
+                            break;
+                    }
+                }
+                
+                function handleExtensionMessage(event) {
                     const message = event.data;
-                    console.log('Received message:', message);
-                    sendBtn.disabled = false;
+                    console.log('Received from extension:', message);
                     
                     switch (message.type) {
                         case 'thinking':
@@ -532,26 +530,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         case 'response':
                         case 'explanation':
                             addMessage(message.content, 'ai');
-                            break;
-                        case 'analysis':
-                            const result = message.content;
-                            const text = '**Health Score:** ' + result.healthScore + '/10\\n' +
-                                '**Issues Found:** ' + result.issues.length + '\\n\\n' +
-                                '**Top Suggestions:**\\n' +
-                                result.suggestions.slice(0, 3).map(s => '• ' + s).join('\\n');
-                            addMessage(text, 'ai');
+                            setWaiting(false);
                             break;
                         case 'error':
-                            addMessage('❌ ' + message.content, 'ai', false, true);
+                            addMessage(message.content, 'ai', false, true);
+                            setWaiting(false);
                             break;
                         case 'welcome':
                             console.log('Welcome message received');
                             break;
                     }
-                });
+                }
                 
-                // Auto-focus input
-                inputEl.focus();
+                function addMessage(text, sender, isThinking = false, isError = false, id = null) {
+                    const messageEl = document.createElement('div');
+                    messageEl.className = 'message ' + (sender === 'user' ? 'user-message' : 'ai-message');
+                    
+                    if (isThinking) messageEl.className += ' thinking';
+                    if (isError) messageEl.className += ' error';
+                    if (id) messageEl.setAttribute('data-message-id', id);
+                    
+                    // Convert markdown-style formatting
+                    const formatted = text
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>');
+                    
+                    messageEl.innerHTML = formatted;
+                    messagesEl.appendChild(messageEl);
+                    
+                    // Scroll to bottom
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+                
+                function removeMessage(id) {
+                    const element = document.querySelector('[data-message-id="' + id + '"]');
+                    if (element) {
+                        element.remove();
+                    }
+                }
+                
+                function setWaiting(waiting) {
+                    isWaiting = waiting;
+                    sendBtn.disabled = waiting;
+                    inputEl.disabled = waiting;
+                    
+                    if (!waiting) {
+                        inputEl.focus();
+                    }
+                }
             </script>
         </body>
         </html>`;

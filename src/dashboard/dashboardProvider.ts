@@ -9,6 +9,7 @@ export class DashboardProvider {
     private readonly _panel: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
+    private _diagnosticManager: DiagnosticManager;
     
     public static createOrShow(
         extensionUri: vscode.Uri,
@@ -60,6 +61,7 @@ export class DashboardProvider {
     ) {
         this._panel = panel;
         this._extensionUri = extensionUri;
+        this._diagnosticManager = diagnosticManager;
         
         this.update(diagnosticManager);
         
@@ -69,8 +71,18 @@ export class DashboardProvider {
             async message => {
                 switch (message.command) {
                     case 'refresh':
+                        // Re-analyze all currently tracked files
+                        vscode.window.showInformationMessage('Refreshing analysis...');
+                        await this.refreshAllAnalyses();
                         this.update(diagnosticManager);
                         return;
+                        
+                    case 'analyzeAll':
+                        // Analyze all open files in the workspace
+                        vscode.window.showInformationMessage('Analyzing all files...');
+                        await this.analyzeAllFiles();
+                        return;
+                        
                     case 'openFile':
                         try {
                             let filePath = message.file;
@@ -98,6 +110,92 @@ export class DashboardProvider {
             null,
             this._disposables
         );
+    }
+    
+    private async refreshAllAnalyses() {
+        const filePaths = Array.from(DashboardProvider.analysisData.keys());
+        
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Refreshing analyses",
+            cancellable: false
+        }, async (progress) => {
+            for (let i = 0; i < filePaths.length; i++) {
+                const filePath = filePaths[i];
+                progress.report({ 
+                    increment: (100 / filePaths.length),
+                    message: `Analyzing ${filePath.split(/[/\\]/).pop()}...` 
+                });
+                
+                try {
+                    // Re-analyze each file
+                    await vscode.commands.executeCommand('technicalDebtDetective.analyzeFile', filePath);
+                } catch (error) {
+                    console.error(`Error analyzing ${filePath}:`, error);
+                }
+            }
+        });
+        
+        vscode.window.showInformationMessage(`Refreshed analysis for ${filePaths.length} files`);
+    }
+    
+    private async analyzeAllFiles() {
+        // Get all JavaScript and TypeScript files in the workspace
+        const files = await vscode.workspace.findFiles(
+            '**/*.{js,jsx,ts,tsx}',
+            '**/node_modules/**',
+            50 // Limit to 50 files to avoid overwhelming the system
+        );
+        
+        if (files.length === 0) {
+            vscode.window.showWarningMessage('No JavaScript/TypeScript files found in workspace');
+            return;
+        }
+        
+        const proceed = await vscode.window.showInformationMessage(
+            `Found ${files.length} files. Analyze all?`,
+            'Yes',
+            'No'
+        );
+        
+        if (proceed !== 'Yes') {
+            return;
+        }
+        
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Analyzing files",
+            cancellable: true
+        }, async (progress, token) => {
+            for (let i = 0; i < files.length; i++) {
+                if (token.isCancellationRequested) {
+                    break;
+                }
+                
+                const file = files[i];
+                const fileName = file.fsPath.split(/[/\\]/).pop() || '';
+                
+                progress.report({ 
+                    increment: (100 / files.length),
+                    message: `Analyzing ${fileName}...` 
+                });
+                
+                try {
+                    const document = await vscode.workspace.openTextDocument(file);
+                    // Trigger analysis by opening the document
+                    await vscode.commands.executeCommand('technicalDebtDetective.analyzeSpecificFile', document);
+                    
+                    // Small delay to avoid overwhelming the system
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    console.error(`Error analyzing ${file.fsPath}:`, error);
+                }
+            }
+        });
+        
+        // Update the dashboard after analysis
+        this.update(this._diagnosticManager);
+        vscode.window.showInformationMessage(`Analysis complete for ${files.length} files`);
     }
     
     private update(diagnosticManager: DiagnosticManager) {

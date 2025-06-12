@@ -24,6 +24,12 @@
         "icon": "$(search)"
       },
       {
+        "command": "technicalDebtDetective.analyzeSpecificFile",
+        "title": "Analyze Specific File",
+        "category": "Technical Debt Detective",
+        "icon": "$(search)"
+      },
+      {
         "command": "technicalDebtDetective.showDashboard",
         "title": "Show Dashboard",
         "category": "Technical Debt Detective",
@@ -83,7 +89,7 @@
         },
         "techDebtDetective.geminiApiKey": {
           "type": "string",
-          "default": "",
+          "default": "AIzaSyAQ11QV-uBX17eDDnKVaubgbteBQLg0VTU",
           "description": "Google Gemini API key"
         },
         "techDebtDetective.geminiModel": {
