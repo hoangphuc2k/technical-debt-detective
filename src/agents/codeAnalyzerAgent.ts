@@ -2,6 +2,7 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
+import { ChatOllama } from "@langchain/community/chat_models/ollama";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentExecutor, createToolCallingAgent } from "langchain/agents";
 import * as vscode from "vscode";
@@ -17,7 +18,7 @@ export interface CodeIssue {
   description: string;
   fixTime: number;
   suggestion?: string;
-  codeSnippet?: string; // Add this to help with line detection
+  codeSnippet?: string;
 }
 
 export interface AnalysisResult {
@@ -32,19 +33,31 @@ export interface AnalysisResult {
 }
 
 export class CodeAnalyzerAgent {
-  private model: ChatGoogleGenerativeAI;
+  private model: ChatOllama | ChatGoogleGenerativeAI;
   private executor!: AgentExecutor;
   private initialized: Promise<void>;
   private config: vscode.WorkspaceConfiguration;
 
   constructor(config: vscode.WorkspaceConfiguration) {
     this.config = config;
-    this.model = new ChatGoogleGenerativeAI({
-      model: this.config.get<string>("geminiModel") || "gemini-2.0-flash",
-      apiKey: this.config.get<string>("geminiApiKey"),
-      temperature: 0,
-      maxOutputTokens: 2048,
-    });
+    
+    // Check if using Ollama or Gemini
+    const provider = this.config.get<string>("aiProvider") || "gemini";
+    
+    if (provider === "ollama") {
+      this.model = new ChatOllama({
+        model: this.config.get<string>("ollamaModel") || "llama2",
+        baseUrl: this.config.get<string>("ollamaUrl") || "http://localhost:11434",
+        temperature: 0,
+      });
+    } else {
+      this.model = new ChatGoogleGenerativeAI({
+        model: this.config.get<string>("geminiModel") || "gemini-2.0-flash",
+        apiKey: this.config.get<string>("geminiApiKey"),
+        temperature: 0,
+        maxOutputTokens: 2048,
+      });
+    }
 
     this.initialized = this.initializeAgent();
   }
