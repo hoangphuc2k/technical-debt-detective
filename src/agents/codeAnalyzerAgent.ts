@@ -2,6 +2,7 @@ import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
+import { ChatOllama } from "@langchain/community/chat_models/ollama";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentExecutor, createToolCallingAgent } from "langchain/agents";
 import * as vscode from "vscode";
@@ -32,18 +33,31 @@ export interface AnalysisResult {
 }
 
 export class CodeAnalyzerAgent {
-  private model: ChatGoogleGenerativeAI;
+  private model: ChatOllama | ChatGoogleGenerativeAI;
   private executor!: AgentExecutor;
   private initialized: Promise<void>;
   private config: vscode.WorkspaceConfiguration;
 
   constructor(config: vscode.WorkspaceConfiguration) {
     this.config = config;
-    this.model = new ChatGoogleGenerativeAI({
-      model: this.config.get<string>("geminiModel") || "gemini-2.0-flash",
-      apiKey: this.config.get<string>("geminiApiKey"),
-      temperature: 0,
-    });
+
+    // Check if using Ollama or Gemini
+    const provider = this.config.get<string>("aiProvider") || "gemini";
+
+    if (provider === "ollama") {
+      this.model = new ChatOllama({
+        model: this.config.get<string>("ollamaModel") || "llama2",
+        baseUrl: this.config.get<string>("ollamaUrl") || "http://localhost:11434",
+        temperature: 0,
+      });
+    } else {
+      this.model = new ChatGoogleGenerativeAI({
+        model: this.config.get<string>("geminiModel") || "gemini-2.0-flash",
+        apiKey: this.config.get<string>("geminiApiKey"),
+        temperature: 0,
+        maxOutputTokens: 2048,
+      });
+    }
 
     this.initialized = this.initializeAgent();
   }
@@ -186,19 +200,19 @@ IMPORTANT:
 
     const result = await this.executor.invoke({ input });
     let fixedCode = result.output || "";
-    
+
     // Clean up any markdown formatting
     fixedCode = fixedCode
       .replace(/^```[a-z]*\n?/, '')
       .replace(/\n?```$/, '')
       .trim();
-    
+
     // Validate it's actual code
     if (fixedCode.includes('"healthScore"') || !fixedCode.includes('\n')) {
       // Apply simple fixes directly to the full code
       const lines = code.split('\n');
       const problemLine = lines[issue.line - 1] || '';
-      
+
       if (issue.type === 'no-console') {
         lines[issue.line - 1] = '  // ' + problemLine.trim();
       } else if (issue.type === 'no-var') {
@@ -208,10 +222,10 @@ IMPORTANT:
       } else if (issue.type === 'semi') {
         lines[issue.line - 1] = problemLine.trimRight() + ';';
       }
-      
+
       return lines.join('\n');
     }
-    
+
     return fixedCode;
   }
 
@@ -254,7 +268,7 @@ Provide a clear explanation covering:
     // Extract JSON from the output
     const jsonMatch = output.match(/\{[\s\S]*\}/);
     let jsonString = jsonMatch ? jsonMatch[0] : output;
-    
+
     // Fix common JSON escaping issues from AI output
     // Replace improperly escaped regex patterns
     jsonString = jsonString.replace(/\\s/g, '\\\\s');
@@ -262,7 +276,7 @@ Provide a clear explanation covering:
       // Ensure proper escaping within strings
       return `"${content.replace(/\\/g, '\\\\')}"`;
     });
-    
+
     // Try to parse with error recovery
     let parsed;
     try {
@@ -270,7 +284,7 @@ Provide a clear explanation covering:
     } catch (parseError) {
       // If parsing fails, try to extract data manually
       console.warn("JSON parse failed, attempting recovery:", parseError);
-      
+
       // Remove problematic codeSnippet fields and try again
       jsonString = jsonString.replace(/"codeSnippet":\s*"[^"]*"/g, '"codeSnippet": ""');
       parsed = JSON.parse(jsonString);
@@ -280,14 +294,14 @@ Provide a clear explanation covering:
       healthScore: Math.max(1, Math.min(10, parsed.healthScore ?? 5)),
       issues: Array.isArray(parsed.issues)
         ? parsed.issues.map((issue: any) => ({
-            type: issue.type ?? "unknown",
-            severity: this.normalizeSeverity(issue.severity),
-            line: parseInt(issue.line) || 1,
-            description: issue.description ?? "No description",
-            fixTime: parseInt(issue.fixTime) || 15,
-            suggestion: issue.suggestion,
-            codeSnippet: issue.codeSnippet || "",
-          }))
+          type: issue.type ?? "unknown",
+          severity: this.normalizeSeverity(issue.severity),
+          line: parseInt(issue.line) || 1,
+          description: issue.description ?? "No description",
+          fixTime: parseInt(issue.fixTime) || 15,
+          suggestion: issue.suggestion,
+          codeSnippet: issue.codeSnippet || "",
+        }))
         : [],
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
       metrics: parsed.metrics || {
@@ -300,8 +314,8 @@ Provide a clear explanation covering:
 
   private normalizeSeverity(severity: any): "high" | "medium" | "low" {
     const sev = String(severity).toLowerCase();
-    if (sev.includes("high") || sev.includes("error")) {return "high";}
-    if (sev.includes("medium") || sev.includes("warn")) {return "medium";}
+    if (sev.includes("high") || sev.includes("error")) { return "high"; }
+    if (sev.includes("medium") || sev.includes("warn")) { return "medium"; }
     return "low";
   }
 }
