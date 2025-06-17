@@ -1,86 +1,25 @@
 import { Tool } from "langchain/tools";
-import * as ts from "typescript";
 
 export class ComplexityTool extends Tool {
   name = "complexity_analyzer";
-  description =
-    "Calculates cyclomatic complexity of JavaScript/TypeScript code";
+  description = "Analyzes cyclomatic and cognitive complexity of JavaScript/TypeScript code. The AI should calculate complexity scores for each function/method and identify areas that are too complex.";
 
   async _call(code: string): Promise<string> {
-    const sourceFile = ts.createSourceFile(
-      "temp.ts",
-      code,
-      ts.ScriptTarget.Latest,
-      true
-    );
-
-    const complexityReport = this.analyzeComplexity(sourceFile);
-    return JSON.stringify(complexityReport);
-  }
-
-  private analyzeComplexity(sourceFile: ts.SourceFile): any {
-    let complexity = 1; // Base complexity
-    const report = {
-      totalComplexity: 0,
-      functions: [] as any[],
-    };
-
-    const visit = (node: ts.Node) => {
-      // Count decision points
-      switch (node.kind) {
-        case ts.SyntaxKind.IfStatement:
-        case ts.SyntaxKind.ConditionalExpression:
-        case ts.SyntaxKind.CaseClause:
-        case ts.SyntaxKind.CatchClause:
-        case ts.SyntaxKind.WhileStatement:
-        case ts.SyntaxKind.DoStatement:
-        case ts.SyntaxKind.ForStatement:
-        case ts.SyntaxKind.ForInStatement:
-        case ts.SyntaxKind.ForOfStatement:
-          complexity++;
-          break;
+    return JSON.stringify({
+      tool: "complexity",
+      codeToAnalyze: code,
+      requestType: "analyze_complexity",
+      instructions: "Analyze each function/method for cyclomatic complexity (count decision points like if, for, while, case statements). Return complexity scores and flag functions with complexity > 10 as high risk.",
+      expectedFormat: {
+        totalComplexity: "number",
+        functions: [
+          {
+            name: "function name",
+            complexity: "number",
+            line: "line number"
+          }
+        ]
       }
-
-      // Check for functions
-      if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
-        const name = node.name?.getText() || "anonymous";
-        const funcComplexity = this.calculateFunctionComplexity(node);
-        report.functions.push({
-          name,
-          complexity: funcComplexity,
-          line: sourceFile.getLineAndCharacterOfPosition(node.pos).line + 1,
-        });
-      }
-
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
-    report.totalComplexity = complexity;
-    return report;
-  }
-
-  private calculateFunctionComplexity(node: ts.Node): number {
-    let complexity = 1;
-
-    const visit = (node: ts.Node) => {
-      switch (node.kind) {
-        case ts.SyntaxKind.IfStatement:
-        case ts.SyntaxKind.ConditionalExpression:
-        case ts.SyntaxKind.CaseClause:
-        case ts.SyntaxKind.CatchClause:
-        case ts.SyntaxKind.WhileStatement:
-        case ts.SyntaxKind.DoStatement:
-        case ts.SyntaxKind.ForStatement:
-        case ts.SyntaxKind.ForInStatement:
-        case ts.SyntaxKind.ForOfStatement:
-          complexity++;
-          break;
-      }
-      ts.forEachChild(node, visit);
-    };
-
-    visit(node);
-    return complexity;
+    });
   }
 }

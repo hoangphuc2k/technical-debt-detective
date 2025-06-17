@@ -98,94 +98,60 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Register the apply fix command
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      'techDebtDetective.applyFix',
-      async (document: vscode.TextDocument, diagnostic: vscode.Diagnostic, issueData: any) => {
+      "techDebtDetective.applyFix",
+      async (
+        document: vscode.TextDocument,
+        diagnostic: vscode.Diagnostic,
+        issueData: any
+      ) => {
         try {
-          // Show progress while generating fix
-          await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Generating fix...",
-            cancellable: false
-          }, async () => {
-            // Get AI-generated fix
-            const fix = await codeAnalyzer.generateFix(document.getText(), issueData);
-            
-            if (!fix || fix.trim() === '') {
-              vscode.window.showErrorMessage('Unable to generate fix');
-              return;
-            }
+          await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: "Generating fix...",
+              cancellable: false,
+            },
+            async () => {
+              // Get the full fixed code from AI
+              const fixedCode = await codeAnalyzer.generateFix(
+                document.getText(),
+                issueData
+              );
 
-            // Check if the fix looks like JSON (shouldn't happen now, but just in case)
-            if (fix.includes('"healthScore"') || (fix.includes('{') && fix.includes('"issues"'))) {
-              vscode.window.showErrorMessage('AI returned analysis instead of fix. Please try again.');
-              return;
-            }
+              if (
+                !fixedCode ||
+                fixedCode.trim() === "" ||
+                fixedCode === document.getText()
+              ) {
+                vscode.window.showErrorMessage("Unable to generate fix");
+                return;
+              }
 
-            const edit = new vscode.WorkspaceEdit();
-            
-            // Determine the range to replace based on the fix
-            const fixLines = fix.split('\n');
-            const startLine = diagnostic.range.start.line;
-            
-            if (fixLines.length === 1) {
-              // Single line fix - replace just that line
-              const lineText = document.lineAt(startLine).text;
-              const fullRange = new vscode.Range(startLine, 0, startLine, lineText.length);
-              edit.replace(document.uri, fullRange, fix);
-            } else {
-              // Multi-line fix (for complex refactoring)
-              // Try to detect if it's a function that needs to be replaced
-              const endLine = Math.min(startLine + fixLines.length - 1, document.lineCount - 1);
-              
-              // Look for function boundaries if it's a complexity issue
-              if (issueData.type === 'complexity' || issueData.description.includes('function')) {
-                // Find the end of the function
-                let functionEndLine = startLine;
-                let braceCount = 0;
-                let inFunction = false;
-                
-                for (let i = startLine; i < document.lineCount; i++) {
-                  const line = document.lineAt(i).text;
-                  for (const char of line) {
-                    if (char === '{') {
-                      braceCount++;
-                      inFunction = true;
-                    } else if (char === '}') {
-                      braceCount--;
-                      if (inFunction && braceCount === 0) {
-                        functionEndLine = i;
-                        break;
-                      }
-                    }
-                  }
-                  if (functionEndLine !== startLine) break;
-                }
-                
-                const fullRange = new vscode.Range(
-                  startLine, 
-                  0, 
-                  functionEndLine, 
-                  document.lineAt(functionEndLine).text.length
-                );
-                edit.replace(document.uri, fullRange, fix);
+              // Replace entire document content
+              const edit = new vscode.WorkspaceEdit();
+              const fullRange = new vscode.Range(
+                document.positionAt(0),
+                document.positionAt(document.getText().length)
+              );
+
+              edit.replace(document.uri, fullRange, fixedCode);
+
+              const success = await vscode.workspace.applyEdit(edit);
+
+              if (success) {
+                vscode.window.showInformationMessage("Fix applied successfully!");
+
+                // Re-analyze after a short delay
+                setTimeout(() => performAnalysis(document), 1000);
               } else {
-                // For other multi-line fixes, replace the same number of lines
-                const fullRange = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
-                edit.replace(document.uri, fullRange, fix);
+                vscode.window.showErrorMessage("Failed to apply fix");
               }
             }
-
-            await vscode.workspace.applyEdit(edit);
-            vscode.window.showInformationMessage('Fix applied successfully!');
-            
-            // Re-analyze the file after applying fix
-            setTimeout(() => performAnalysis(document), 1000);
-          });
+          );
         } catch (error) {
-          console.error('Error applying fix:', error);
+          console.error("Error applying fix:", error);
           vscode.window.showErrorMessage(`Failed to apply fix: ${error}`);
         }
       }
