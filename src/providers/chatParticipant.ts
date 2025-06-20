@@ -27,7 +27,7 @@ export class TechDebtChatParticipant {
     this.participant.iconPath = vscode.Uri.joinPath(
       this.context.extensionUri,
       "media",
-      "icon.png"
+      "chatIcon.png"
     );
 
     this.participant.followupProvider = {
