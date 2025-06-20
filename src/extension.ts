@@ -7,6 +7,7 @@ import { CodeActionProvider, registerApplyFixCommand } from "./providers/codeAct
 import { HoverProvider } from "./providers/hoverProvider.js";
 import { Logger } from "./utils/logger.js";
 import { debounce } from "./utils/debounce.js";
+import { TechDebtChatParticipant } from "./providers/chatParticipant.js";
 
 let codeAnalyzer: CodeAnalyzerAgent;
 let diagnosticManager: DiagnosticManager;
@@ -58,13 +59,8 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Register webview provider
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      "technicalDebtDetective.chatView",
-      chatProvider
-    )
-  );
+  const chatParticipant = new TechDebtChatParticipant(context, codeAnalyzer, diagnosticManager);
+  chatParticipant.register();
 
   // Register commands
   context.subscriptions.push(

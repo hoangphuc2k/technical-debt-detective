@@ -48,17 +48,36 @@
         "icon": "$(tools)"
       }
     ],
-    "views": {
-      "explorer": [
-        {
-          "type": "webview",
-          "id": "technicalDebtDetective.chatView",
-          "name": "AI Detective Chat",
-          "icon": "$(comment-discussion)",
-          "contextualTitle": "Technical Debt Detective"
-        }
-      ]
-    },
+    "chatParticipants": [
+      {
+        "id": "technicalDebtDetective.chat",
+        "name": "technicalDebt",
+        "description": "AI-powered technical debt analysis and code quality assistant",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "analyze",
+            "description": "Analyze current file for technical debt"
+          },
+          {
+            "name": "explain",
+            "description": "Explain the issue at cursor position"
+          },
+          {
+            "name": "fix",
+            "description": "Suggest fixes for detected issues"
+          },
+          {
+            "name": "dashboard",
+            "description": "Open the technical debt dashboard"
+          },
+          {
+            "name": "help",
+            "description": "Show available commands and features"
+          }
+        ]
+      }
+    ],
     "menus": {
       "commandPalette": [
         {
