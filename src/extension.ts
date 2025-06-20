@@ -15,7 +15,7 @@ let chatProvider: ChatViewProvider;
 
 export async function activate(context: vscode.ExtensionContext) {
   Logger.info("Technical Debt Detective activating...");
-  const config = vscode.workspace.getConfiguration("techDebtDetective");
+  const config = vscode.workspace.getConfiguration("technicalDebtDetective");
 
   if (!config.get("geminiApiKey")) {
     const apiKey = await vscode.window.showInputBox({
@@ -195,7 +195,7 @@ export async function activate(context: vscode.ExtensionContext) {
 function isSupported(document: vscode.TextDocument): boolean {
   return [
     "javascript",
-    "typescript", 
+    "typescript",
     "javascriptreact",
     "typescriptreact",
   ].includes(document.languageId);
@@ -219,7 +219,7 @@ async function performAnalysis(document: vscode.TextDocument) {
       const result = await codeAnalyzer.analyzeCode(code, filePath);
 
       const diagnostics: vscode.Diagnostic[] = [];
-      
+
       // Process each issue and find its actual location in the code
       for (const issue of result.issues) {
         const diagnostic = await createDiagnosticForIssue(document, issue, code);
@@ -234,7 +234,7 @@ async function performAnalysis(document: vscode.TextDocument) {
       Logger.info(`Analysis completed in ${elapsed}ms for ${filePath}`);
 
       DashboardProvider.updateData(result, document.uri.fsPath);
-      
+
       const issueCount = result.issues.length;
       const healthEmoji = result.healthScore >= 8 ? "✅" : result.healthScore >= 6 ? "⚠️" : "🚨";
       vscode.window.setStatusBarMessage(
@@ -258,17 +258,17 @@ async function createDiagnosticForIssue(
 ): Promise<vscode.Diagnostic | null> {
   try {
     let range: vscode.Range;
-    
+
     // Try to find the exact location based on issue type and description
     if (issue.type === 'no-var' || issue.type === 'no-console' || issue.type === 'eqeqeq') {
       // Search for the pattern in the code
       const searchPattern = getSearchPatternForIssue(issue);
       const lineIndex = findLineWithPattern(document, searchPattern, issue.line);
-      
+
       if (lineIndex >= 0) {
         const line = document.lineAt(lineIndex);
         const matchIndex = line.text.indexOf(searchPattern);
-        
+
         if (matchIndex >= 0) {
           // Create a range that highlights just the problematic part
           range = new vscode.Range(
@@ -302,8 +302,8 @@ async function createDiagnosticForIssue(
       issue.severity === "high"
         ? vscode.DiagnosticSeverity.Error
         : issue.severity === "medium"
-        ? vscode.DiagnosticSeverity.Warning
-        : vscode.DiagnosticSeverity.Information
+          ? vscode.DiagnosticSeverity.Warning
+          : vscode.DiagnosticSeverity.Information
     );
 
     diagnostic.source = "Technical Debt Detective";
@@ -348,7 +348,7 @@ function findLineWithPattern(
   if (suggestedLine) {
     const searchStart = Math.max(0, suggestedLine - 3);
     const searchEnd = Math.min(document.lineCount, suggestedLine + 2);
-    
+
     for (let i = searchStart; i < searchEnd; i++) {
       if (document.lineAt(i).text.includes(pattern)) {
         return i;
@@ -368,7 +368,7 @@ function findLineWithPattern(
 
 async function analyzeCurrentFile(filePath?: string) {
   let document: vscode.TextDocument;
-  
+
   if (filePath) {
     // If a file path is provided, open that document
     try {
@@ -394,7 +394,7 @@ async function analyzeCurrentFile(filePath?: string) {
   }
 
   await performAnalysis(document);
-  
+
   if (!filePath) {
     // Only show this message when manually triggered
     vscode.window.showInformationMessage("Analysis complete!");
@@ -417,7 +417,7 @@ async function explainSelectedIssue() {
   }
 
   const issue = (diagnostic as any).issueData;
-  
+
   await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
     title: "Explaining issue...",

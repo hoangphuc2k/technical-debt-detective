@@ -42,7 +42,7 @@
         "icon": "$(lightbulb)"
       },
       {
-        "command": "techDebtDetective.applyFix",
+        "command": "technicalDebtDetective.applyFix",
         "title": "Apply Fix",
         "category": "Technical Debt Detective",
         "icon": "$(tools)"
@@ -101,17 +101,22 @@
     "configuration": {
       "title": "Technical Debt Detective",
       "properties": {
+        "technicalDebtDetective.modelProvider": {
+          "type": "string",
+          "default": "ollama",
+          "description": "Model provider"
+        },
         "technicalDebtDetective.enableAutoAnalysis": {
           "type": "boolean",
           "default": true,
           "description": "Enable automatic analysis on file open/save"
         },
-        "techDebtDetective.geminiApiKey": {
+        "technicalDebtDetective.geminiApiKey": {
           "type": "string",
           "default": "AIzaSyAQ11QV-uBX17eDDnKVaubgbteBQLg0VTU",
           "description": "Google Gemini API key"
         },
-        "techDebtDetective.geminiModel": {
+        "technicalDebtDetective.geminiModel": {
           "type": "string",
           "enum": [
             "gemini-pro",
@@ -144,6 +149,7 @@
   },
   "devDependencies": {
     "@langchain/community": "^0.3.45",
+    "@langchain/ollama": "^0.2.2",
     "@types/lodash": "^4.17.17",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",

@@ -7,7 +7,7 @@ export class DiagnosticManager {
     
     constructor() {
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection(
-            'techDebtDetective'
+            'technicalDebtDetective'
         );
     }
     

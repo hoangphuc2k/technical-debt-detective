@@ -1,8 +1,8 @@
+import { ChatOllama } from '@langchain/ollama';
 import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
-import { ChatOllama } from "@langchain/community/chat_models/ollama";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AgentExecutor, createToolCallingAgent } from "langchain/agents";
 import * as vscode from "vscode";
@@ -42,11 +42,11 @@ export class CodeAnalyzerAgent {
     this.config = config;
 
     // Check if using Ollama or Gemini
-    const provider = this.config.get<string>("aiProvider") || "gemini";
+    const provider = this.config.get<string>("modelProvider") || "gemini";
 
     if (provider === "ollama") {
       this.model = new ChatOllama({
-        model: this.config.get<string>("ollamaModel") || "llama2",
+        model: this.config.get<string>("ollamaModel") || "llama3.2",
         baseUrl: this.config.get<string>("ollamaUrl") || "http://localhost:11434",
         temperature: 0,
       });
@@ -103,6 +103,7 @@ Your analysis process:
    - Code smells (God classes, long methods, etc.)
    - Maintainability issues
 
+5. You are not allowed to return or suggest any code that includes process.exit, eval, require, or spawn.
 After analyzing with ALL tools, provide a comprehensive response in this EXACT JSON format:
 
 {{
@@ -178,55 +179,88 @@ Finally, compile all YOUR findings into the JSON response format.`;
   async generateFix(code: string, issue: CodeIssue): Promise<string> {
     await this.initialized;
 
-    const input = `Fix this code issue and return the COMPLETE fixed code file.
+    const lines = code.split('\n');
+    const lineIndex = Math.max(0, issue.line - 1);
+    const problemLine = lines[lineIndex] || '';
 
-Issue to fix:
-- Type: ${issue.type}
-- Line: ${issue.line}
-- Description: ${issue.description}
-- Suggestion: ${issue.suggestion}
+    // Get context around the problematic line
+    const contextStart = Math.max(0, issue.line - 5);
+    const contextEnd = Math.min(lines.length, issue.line + 5);
+    const contextLines = lines.slice(contextStart, contextEnd);
+    const markedContext = contextLines.map((line, i) => {
+      const lineNum = contextStart + i + 1;
+      return lineNum === issue.line ? `>>> ${lineNum}: ${line}` : `${lineNum}: ${line}`;
+    }).join('\n');
 
-Original code:
-\`\`\`javascript
-${code}
-\`\`\`
+    const input = `You are a code fixer. Fix this specific issue and return ONLY the corrected code.
 
-IMPORTANT: 
-1. Return the ENTIRE file with the issue fixed
-2. Fix ONLY the specific issue mentioned above
-3. Keep all other code exactly the same
-4. Do NOT add any explanations or markdown
-5. Return pure JavaScript/TypeScript code only`;
+Issue Type: ${issue.type}
+Issue Description: ${issue.description}
+Suggestion: ${issue.suggestion || 'Fix the issue'}
 
-    const result = await this.executor.invoke({ input });
-    let fixedCode = result.output || "";
+Code context (line ${issue.line} marked with >>>):
+${markedContext}
 
-    // Clean up any markdown formatting
-    fixedCode = fixedCode
-      .replace(/^```[a-z]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
+IMPORTANT INSTRUCTIONS:
+1. Fix the issue on line ${issue.line} based on the issue description
+2. Return ONLY the fixed code - could be a single line or multiple lines if needed
+3. Do NOT include line numbers, explanations, JSON, or markdown
+4. Just return the actual fixed code that should replace the problematic code
 
-    // Validate it's actual code
-    if (fixedCode.includes('"healthScore"') || !fixedCode.includes('\n')) {
-      // Apply simple fixes directly to the full code
-      const lines = code.split('\n');
-      const problemLine = lines[issue.line - 1] || '';
+For example:
+- If it's a console.log issue, comment it out or remove it
+- If it's a var issue, replace with let or const
+- If it's a complexity issue, refactor the function
+- If it's a code smell, apply the suggested fix`;
 
-      if (issue.type === 'no-console') {
-        lines[issue.line - 1] = '  // ' + problemLine.trim();
-      } else if (issue.type === 'no-var') {
-        lines[issue.line - 1] = problemLine.replace(/\bvar\b/, 'let');
-      } else if (issue.type === 'eqeqeq') {
-        lines[issue.line - 1] = problemLine.replace(/!=/g, '!==').replace(/==/g, '===');
-      } else if (issue.type === 'semi') {
-        lines[issue.line - 1] = problemLine.trimRight() + ';';
+    try {
+      const result = await this.executor.invoke({ input });
+      let fixedCode = result.output || "";
+
+      // Clean up the response
+      fixedCode = fixedCode
+        .replace(/^```[a-z]*\n?/, '') // Remove opening code block
+        .replace(/\n?```$/, '') // Remove closing code block
+        .replace(/^["']|["']$/g, '') // Remove quotes
+        .trim();
+
+      // Validate the response
+      if (fixedCode.includes('"healthScore"') || fixedCode.includes('{') && fixedCode.includes('}') && fixedCode.includes('"issues"')) {
+        console.error('AI returned JSON instead of fixed code, trying again with simpler prompt');
+
+        // Try a simpler approach
+        const simpleInput = `Fix this code issue:
+${problemLine}
+
+Issue: ${issue.description}
+How to fix: ${issue.suggestion}
+
+Return ONLY the fixed line of code, nothing else.`;
+
+        const simpleResult = await this.executor.invoke({ input: simpleInput });
+        fixedCode = simpleResult.output || problemLine;
+        fixedCode = fixedCode.replace(/^```[a-z]*\n?/, '').replace(/\n?```$/, '').trim();
       }
 
-      return lines.join('\n');
-    }
+      // If still getting JSON or empty response, apply a simple fix based on type
+      if (!fixedCode || fixedCode.includes('"healthScore"')) {
+        console.warn('Failed to get proper fix from AI, applying fallback');
+        if (issue.type === 'no-console') {
+          return '    // ' + problemLine.trim(); // Preserve some indentation
+        } else if (issue.type === 'no-var') {
+          return problemLine.replace(/\bvar\b/, 'let');
+        } else if (issue.type === 'eqeqeq') {
+          return problemLine.replace(/!=/g, '!==').replace(/==/g, '===');
+        } else {
+          return problemLine; // Return original if we can't fix
+        }
+      }
 
-    return fixedCode;
+      return fixedCode;
+    } catch (error) {
+      console.error("Fix generation error:", error);
+      return problemLine; // Return original line on error
+    }
   }
 
   async explainIssue(code: string, issue: CodeIssue): Promise<string> {
@@ -265,51 +299,45 @@ Provide a clear explanation covering:
   }
 
   private parseAnalysisResult(output: string): AnalysisResult {
-    // Extract JSON from the output
-    const jsonMatch = output.match(/\{[\s\S]*\}/);
-    let jsonString = jsonMatch ? jsonMatch[0] : output;
-
-    // Fix common JSON escaping issues from AI output
-    // Replace improperly escaped regex patterns
-    jsonString = jsonString.replace(/\\s/g, '\\\\s');
-    jsonString = jsonString.replace(/\\"([^"]*?)\\"/g, (match, content) => {
-      // Ensure proper escaping within strings
-      return `"${content.replace(/\\/g, '\\\\')}"`;
-    });
-
-    // Try to parse with error recovery
-    let parsed;
     try {
-      parsed = JSON.parse(jsonString);
-    } catch (parseError) {
-      // If parsing fails, try to extract data manually
-      console.warn("JSON parse failed, attempting recovery:", parseError);
+      // Try to extract JSON from the output
+      const jsonMatch = output.match(/\{[\s\S]*\}/);
+      let parsed;
 
-      // Remove problematic codeSnippet fields and try again
-      jsonString = jsonString.replace(/"codeSnippet":\s*"[^"]*"/g, '"codeSnippet": ""');
-      parsed = JSON.parse(jsonString);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        // If no JSON found, try parsing the whole output
+        parsed = JSON.parse(output);
+      }
+
+      return {
+        healthScore: Math.max(1, Math.min(10, parsed.healthScore ?? 5)),
+        issues: Array.isArray(parsed.issues)
+          ? parsed.issues.map((issue: any) => ({
+            type: issue.type ?? "unknown",
+            severity: this.normalizeSeverity(issue.severity),
+            line: parseInt(issue.line) || 1,
+            description: issue.description ?? "No description",
+            fixTime: parseInt(issue.fixTime) || 15,
+            suggestion: issue.suggestion,
+            codeSnippet: issue.codeSnippet,
+          }))
+          : [],
+        suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+        metrics: parsed.metrics || {
+          complexity: 1,
+          duplicates: 0,
+          codeSmells: 0
+        },
+      };
+    } catch (err) {
+      console.error("Failed to parse result:", err);
+      console.error("Raw output:", output);
+
+      // Fallback: try to extract issues from text
+      return this.createFallbackResult(output);
     }
-
-    return {
-      healthScore: Math.max(1, Math.min(10, parsed.healthScore ?? 5)),
-      issues: Array.isArray(parsed.issues)
-        ? parsed.issues.map((issue: any) => ({
-          type: issue.type ?? "unknown",
-          severity: this.normalizeSeverity(issue.severity),
-          line: parseInt(issue.line) || 1,
-          description: issue.description ?? "No description",
-          fixTime: parseInt(issue.fixTime) || 15,
-          suggestion: issue.suggestion,
-          codeSnippet: issue.codeSnippet || "",
-        }))
-        : [],
-      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
-      metrics: parsed.metrics || {
-        complexity: 1,
-        duplicates: 0,
-        codeSmells: 0
-      },
-    };
   }
 
   private normalizeSeverity(severity: any): "high" | "medium" | "low" {
@@ -317,5 +345,70 @@ Provide a clear explanation covering:
     if (sev.includes("high") || sev.includes("error")) { return "high"; }
     if (sev.includes("medium") || sev.includes("warn")) { return "medium"; }
     return "low";
+  }
+
+  private createFallbackResult(output: string): AnalysisResult {
+    const issues: CodeIssue[] = [];
+
+    // Try to extract issues from the output text
+    const lines = output.split('\n');
+    lines.forEach(line => {
+      if (line.includes("line") && line.includes(":")) {
+        const lineMatch = line.match(/line\s*(\d+)/i);
+        const lineNum = lineMatch ? parseInt(lineMatch[1]) : 1;
+
+        if (line.toLowerCase().includes("console.log")) {
+          issues.push({
+            type: "no-console",
+            severity: "medium",
+            line: lineNum,
+            description: "Console.log statement found",
+            fixTime: 2,
+            suggestion: "Remove console.log statements from production code"
+          });
+        } else if (line.toLowerCase().includes("var")) {
+          issues.push({
+            type: "no-var",
+            severity: "high",
+            line: lineNum,
+            description: "Use of 'var' keyword",
+            fixTime: 2,
+            suggestion: "Replace 'var' with 'let' or 'const'"
+          });
+        }
+      }
+    });
+
+    return {
+      healthScore: 6,
+      issues: issues,
+      suggestions: ["Consider refactoring for better code quality"],
+      metrics: {
+        complexity: 1,
+        duplicates: 0,
+        codeSmells: issues.length
+      }
+    };
+  }
+
+  private handleError(error: unknown, context: string): AnalysisResult {
+    console.error(`Error during ${context}:`, error);
+    return {
+      healthScore: 5,
+      issues: [{
+        type: "analysis-error",
+        severity: "medium",
+        line: 1,
+        description: `Error during ${context}`,
+        fixTime: 0,
+        suggestion: "Check extension logs for details"
+      }],
+      suggestions: [`Error during ${context}. Check logs for details.`],
+      metrics: {
+        complexity: 1,
+        duplicates: 0,
+        codeSmells: 1
+      }
+    };
   }
 }
